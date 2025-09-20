@@ -52,11 +52,14 @@ SC_MODULE(Master) {
                         << " [Master] Sent data = " << counter
                         << " (valid=1)" << endl;
 
-                    counter++;
+                    counter++;          // prepare next data
+                    wait();             // one cycle with valid high
+                    valid.write(false); // drop valid after handshake
                 }
+
                 else {
-                    // keep the master's valid high/true until slave is ready
-                    valid.write(true);
+					valid.write(false); // if slave is not ready valid must be low
+                    data.write(counter);
                     cout << sc_time_stamp()
                         << " [Master] Waiting, slave not ready..."
                         << endl;
@@ -97,37 +100,24 @@ SC_MODULE(Slave) {
 
     void receive_data() {
         ready.write(true);
-        int cooldown = 0; // will be used for simuliating sink not being ready
 
-        wait();  
+        wait();
         while (true) {
             if (reset.read()) {
                 ready.write(true);
-                cooldown = 0;
             }
             else {
-                if (cooldown > 0) {
-                    cooldown--;
-                    if (cooldown == 0) {
-                        ready.write(true);
-                        cout << sc_time_stamp()
-                            << " [Slave] Ready again"
-                            << endl;
-                    }
-                }
-                else if (valid.read() && ready.read()) { 
+                if (valid.read() && ready.read()) {
                     auto d = data.read();
                     outfile << d << endl;
                     outfile.flush();
 
                     cout << sc_time_stamp() << " [Slave] Received data = " << d << endl;
 
-                    // simulate backpressure every 5th data
-                    if ((d % 5) == 0) {
-                        ready.write(false);
-                        cooldown = 3;  // stay busy for 3 cycles
-                        cout << sc_time_stamp() << " [Slave] Backpressure applied (ready=0)"<< endl;
-                    }
+
+					ready.write(false);  // low ready immediately after receiving data
+                    wait();              // wait 1 cycle
+                    ready.write(true);   // back to ready again
                 }
             }
             wait();
@@ -194,7 +184,7 @@ int sc_main(int argc, char* argv[]) {
     sc_start(50, SC_NS);  // reset active for 50ns
     top.reset.write(false);
 
-    
+
     sc_start(5000, SC_NS);
 
     sc_close_vcd_trace_file(wf);
